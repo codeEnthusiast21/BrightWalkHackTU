@@ -1,11 +1,13 @@
 package com.edu.tiethackathon
 
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.camera.core.Camera
 import android.speech.tts.TextToSpeech
 import android.util.Base64
 import android.util.Log
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.Toast
@@ -15,7 +17,6 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
-import androidx.camera.view.PreviewView
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -27,6 +28,7 @@ import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.abs
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
@@ -40,6 +42,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val API_URL = "https://2079-117-203-246-41.ngrok-free.app/completion"
     private var isCameraFrozen = false
 
+    private var startX = 0f
+    private var startY = 0f
+    private val SWIPE_MIN_DISTANCE = 120
+    private var touchStartTime: Long = 0
+    private val MAX_CLICK_DURATION = 200 // milliseconds
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,14 +64,47 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // Initialize Text-to-Speech
         tts = TextToSpeech(this, this)
 
-        // Set up the click listener for capturing photos
-        binding.viewFinder.setOnClickListener {
-            freezeCamera()
-            takePhoto()
+        // Set up touch listener for both camera capture and swipe
+        binding.viewFinder.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = event.x
+                    startY = event.y
+                    touchStartTime = System.currentTimeMillis()
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val endX = event.x
+                    val endY = event.y
+                    val touchDuration = System.currentTimeMillis() - touchStartTime
+
+                    // Calculate the distance moved
+                    val distanceX = abs(endX - startX)
+                    val distanceY = abs(endY - startY)
+
+                    if (touchDuration < MAX_CLICK_DURATION && distanceX < 50 && distanceY < 50) {
+                        // It's a click
+                        freezeCamera()
+                        binding.resultText.text = "hello okioki"
+                        speakText("hello okioki")
+                        takePhoto()
+                    } else if (distanceX > SWIPE_MIN_DISTANCE && distanceX > distanceY) {
+                        // It's a horizontal swipe
+                        if (startX > endX) {
+                            // Left swipe
+                            startSecondActivity()
+                            overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+                        }
+                    }
+                    true
+                }
+                else -> false
+            }
         }
 
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
+
     private fun freezeCamera() {
         isCameraFrozen = true
         camera?.let { camera ->
@@ -95,7 +135,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 resumeCamera() // Reset on error
             }
         }
-    }    private fun resumeCamera() {
+    }
+
+    private fun resumeCamera() {
         isCameraFrozen = false
         try {
             // Remove the frozen frame if it exists
@@ -137,7 +179,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     Log.e(TAG, "Photo capture failed: ${exception.message}", exception)
                     Toast.makeText(baseContext, "Photo capture failed", Toast.LENGTH_SHORT).show()
                     resumeCamera()
-
                 }
             }
         )
@@ -154,14 +195,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val result = response.getString("result")
                 binding.resultText.text = result
                 speakText(result)
-
                 resumeCamera()
             },
             { error ->
                 Toast.makeText(this, "API Error: ${error.message}", Toast.LENGTH_LONG).show()
-
                 resumeCamera()
-
             }
         )
 
@@ -184,7 +222,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
+                camera = cameraProvider.bindToLifecycle(
                     this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
             } catch (exc: Exception) {
                 Toast.makeText(this, "Camera failed to start", Toast.LENGTH_SHORT).show()
@@ -202,6 +240,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val result = tts.setLanguage(Locale.US)
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 Toast.makeText(this, "Language not supported", Toast.LENGTH_SHORT).show()
+            }
+            if (status == TextToSpeech.ERROR) {
+                Toast.makeText(this, "TTS Initialization failed", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -233,6 +274,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             tts.stop()
         }
         tts.shutdown()
+    }
+
+    private fun startSecondActivity() {
+        val intent = Intent(this, Navigation::class.java)
+        startActivity(intent)
     }
 
     companion object {
