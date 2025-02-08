@@ -30,7 +30,10 @@ def describe():
                 try:
                     chunk_json = json.loads(chunk.decode().split("data: ")[1])
                     content = chunk_json.get("content", "")
-                    continue  # In case of decoding error, continue to next chunk
+                    if content:
+                        yield content
+                except json.JSONDecodeError:
+                    continue  # in case of decoding error,continue to next chunk
 
     return Response(generate(), content_type='text/plain')
 
